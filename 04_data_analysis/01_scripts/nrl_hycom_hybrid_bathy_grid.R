@@ -131,12 +131,13 @@ layer_width_above <- reclassify(max_bin_grid-1, rcl = rcl_mat) # layer width abo
 cellStats(layer_width_below!=layer_width_above, stat = sum) # n of cells on the transition between layer widths
 
 max_hycom_depth <- raster(t(max_level), xmn = e1[1], xmx=e1[2], ymn = e1[3], ymx=e1[4],crs = crs(H_true))
-cellStats(h_nrl_res > max_hycom_depth + layer_width_below, sum)
+#check no of cells with nrl depth deeper than hycom layer edge (layer +1/2layer below) 
+cellStats(h_nrl_res > max_hycom_depth + layer_width_below/2, sum)
 cellStats(h_nrl_res < max_hycom_depth, sum) # quite a few cells shallower than HYCOM max depth
 # add half the layer_width below to any NRL cells deepr than HYCOm max depth + full layer width
-H_hybrid[h_nrl_res > max_hycom_depth + layer_width_below] <- 
-  max_hycom_depth[h_nrl_res > max_hycom_depth + layer_width_below] + 
-  layer_width_below[h_nrl_res > max_hycom_depth + layer_width_below] / 2
+H_hybrid[h_nrl_res > (max_hycom_depth + layer_width_below/2)] <- 
+  max_hycom_depth[h_nrl_res > (max_hycom_depth + layer_width_below/2)] + 
+  layer_width_below[h_nrl_res > max_hycom_depth + layer_width_below/2] / 2
 # for cells where gebco is too shallow, we'll leave the bathymetry as is and clip
 # HYCOM data to true depth plus a 100m buffer (at maximum) to account for NRL
 # uncertanties, as it is evident that the difference is < 50m in the vast majority:
@@ -157,7 +158,7 @@ H_hybrid[small_outliers] <- max_hycom_depth[small_outliers]
 # a small number of outliers will have shifted from >100 to <100 now, which is fine
 cellStats(H_hybrid < max_hycom_depth,sum)
 # The number of bathy data too shallow outlier cells has reduced by 700 to 6, 
-
+cellStats(H_hybrid > max_hycom_depth+layer_width_below,sum) # should be zero
 # Next up, creating the mask using a depth weighted mean on a window function 
 
 
