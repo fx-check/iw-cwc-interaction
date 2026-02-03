@@ -154,7 +154,7 @@ fft2D <- function(M, dx, dy, dr = NULL, Hann = TRUE){
 #' @param `u`,`v` flow vector components in the eastward and northward direction respectively
 #' @return A list with flow adjusted wave vector matrices `k_along` and `k_across`, as well as a named vector `flow` with flow direction as CCW from east in radians (used for wave vectors), flow magnitude and flow direction CW from north (in degrees) for geographic standards
 #'  
-allign_k <- function(kx, ky, fft2d.out = NULL, u, v){
+align_k <- function(kx, ky, u, v, fft2D.out = NULL){
   if(!is.null(fft2D.out)){
     kx <- fft2D.out$kx
     ky <- fft2D.out$ky
@@ -168,8 +168,7 @@ allign_k <- function(kx, ky, fft2d.out = NULL, u, v){
   theta <- atan2(v, u) #flow direction from east, CCW
   k_along <- kx * cos(theta) + ky * sin(theta)
   k_across <- ky * cos(theta) - kx * sin(theta)
-  if(is.null(fft2D.out)) {k_mag <- sqrt(kx^2+ky^2)} 
-  else {k_mag <- fft2D.out$radial_frequency_matrix} 
+  if(is.null(fft2D.out)) {k_mag <- sqrt(kx^2+ky^2)} else {k_mag <- fft2D.out$radial_frequency_matrix} 
   k_mag_flow <-  sqrt(k_along^2 + k_across^2)
   phi <- atan2(u, v)*180/pi #flow direction from north, CW in degrees
   flow_mag <- sqrt(u^2 + v^2)
