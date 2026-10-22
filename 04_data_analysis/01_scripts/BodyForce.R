@@ -29,7 +29,7 @@ q_flux <- rast('Qflux_projected.tif')
 season <- c("winter"=1,
             "summer"=2,
             "annual"=3)
-in_dir <- r'(03_secondary_data\NovaScotia\intermediary_files)'
+in_dir <- r'(03_derived_data\NovaScotia\intermediary_files)'
 
 fnames <- c("winter"=paste(in_dir,"zN2_winter_100m_fullWC.tif",sep = "/"),
             "summer"=paste(in_dir,"zN2_summer_100m_fullWC.tif",sep = "/"),
@@ -37,17 +37,17 @@ fnames <- c("winter"=paste(in_dir,"zN2_winter_100m_fullWC.tif",sep = "/"),
             )
 ### Create N2 mask where N<ω -------------------------------------------------
 nearbedN <- sqrt(rast(paste(in_dir,"N2_nearbed_100m_Combined.tif",sep = "/")))
-plot(nearbedN>o_m2 | nearbedN<0)
+plot(nearbedN>o_m2 | nearbedN>0)
 # the upper-frequency limit (N) does not obstruct the generation of M2 IWs
 # 
-nearbedN <- sqrt(rast("N2_nearbed_100m_Combined.tif"))
-winter_nearbedN2 <- raster(paste(in_dir,"N2_winter_100m_20percH_200m.tif",
+
+winter_nearbedN2 <- raster::raster(paste(in_dir,"N2_winter_100m_20percH_200m.tif",
                                sep = "/"))
 (inst_rcl <- matrix(data = c(-Inf,0,0, Inf,0,1), 
                     nrow = 2,dimnames = list(c(),
                                              c('from', 'to', 'becomes'))))
 (rcl_mat <- matrix(data = c(-Inf,1e-20,o_m2,0,(o_m2-1e-20), Inf,0,1,0), nrow = 3,dimnames = list(c(),c('from', 'to', 'becomes'))))
-winter_mask <- reclassify(winter_nearbedN2,rcl =rcl_mat)
+winter_mask <- raster::reclassify(winter_nearbedN2,rcl =rcl_mat)
 writeRaster(winter_mask,paste(in_dir,'winter_N2mask.tif', sep = "/"))
 ### Calculate body force -----------------------------------------------------
 for(i in season){
@@ -59,15 +59,41 @@ for(i in season){
   names(B_int) <- paste(season_name,'depth_integrated_body_force_normalised_to_Q',
                         sep = "_")
   plot(B_int, main = gsub('_'," ", names(B_int)))
-  writeRaster(B_int,paste0(out_dir,paste(season_name, 'depth_integrated_Bd_V2.tif', 
-                                         sep = "_"))
-              , overwrite = T)
+  # Raster outputs were compressed for file upload only, commented out 
+  # as this will cause rounding errors
+  writeRaster(B_int,paste0(out_dir,
+                           paste(season_name,
+                                 'depth_integrated_Bd_V2.tif', 
+                                 sep = "_")),
+              overwrite = T
+              # , wopt = list(
+              #   datatype = "FLT4S",  
+              #   gdal = c(
+              #     "COMPRESS=ZSTD",   
+              #     "PREDICTOR=3",     
+              #     "ZSTD_LEVEL=15"    
+              #   )
+              # )
+              )
+ 
   
   names(F_bd_int) <- paste(season_name,'depth_integrated_body_force_J_kg-1',
                            sep = "_")
-  writeRaster(F_bd_int, paste0(out_dir,paste(season_name, 
-                                             'depth_integrated_F_bd_J_kg-1.tif', 
-                                             sep = "_")), 
-              overwrite = T)
+  
+  writeRaster(F_bd_int, 
+              paste0(out_dir,
+                     paste(season_name,
+                           'depth_integrated_F_bd_J_kg-1.tif',
+                           sep = "_")),
+              overwrite = T
+              # ,wopt = list(
+              #   datatype = "FLT4S",  
+              #   gdal = c(
+              #     "COMPRESS=ZSTD",   
+              #     "PREDICTOR=3",     
+              #     "ZSTD_LEVEL=15"    
+              #   )
+              # )
+              )
 }
 
