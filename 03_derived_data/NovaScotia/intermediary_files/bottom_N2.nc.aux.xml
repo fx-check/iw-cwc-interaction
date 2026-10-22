@@ -1,0 +1,17 @@
+<PAMDataset>
+  <Metadata>
+    <MDI key="Bottom N2#long_name">Squared bottom buoyancy frequency N2</MDI>
+    <MDI key="Bottom N2#units">s^-2</MDI>
+    <MDI key="Bottom N2#_FillValue">-nan(ind)</MDI>
+    <MDI key="lat#units">degrees_north</MDI>
+    <MDI key="lon#units">degrees_east</MDI>
+  </Metadata>
+  <PAMRasterBand band="1">
+    <Metadata>
+      <MDI key="STATISTICS_MINIMUM">0</MDI>
+      <MDI key="STATISTICS_MAXIMUM">0.0011204537004232</MDI>
+      <MDI key="STATISTICS_MEAN">0.00017773747739945</MDI>
+      <MDI key="STATISTICS_STDDEV">0.00023774753891502</MDI>
+    </Metadata>
+  </PAMRasterBand>
+</PAMDataset>
