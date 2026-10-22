@@ -200,7 +200,7 @@ should_split_cols <- function(nr, nc, min_gain = 0.05) {
   nc3 <- max(nc1,nc2)
   pad_split <- padded_cells(nr, nc3) 
   
-  # Split only if it *meaningfully* reduces padding
+  # Split only if it reduces padding by more than the minimum threshold set in min_gain
   gain <- (pad_unsplit - pad_split) / max(pad_unsplit, 1L)
   gain > min_gain
 }
@@ -294,11 +294,7 @@ for (j in 1:10
 
 # downstream handling -----------------------------------------------------
 
-
-# current_tile <- st_as_stars(p_star) #reads this from proxy to memory
-# current_tile
 # saveRDS(fft_env, file = '03_derived_data/fft_env.Rds')
-
 # length(ls(envir = fft_env))
 
 
