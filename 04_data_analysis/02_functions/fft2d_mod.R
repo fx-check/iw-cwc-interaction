@@ -1,4 +1,4 @@
-#' Detrends a DEM with `pracma::odregress()`
+#' Detrends a DEM with `lm.fit()`
 #' @param dem a `RasterLayer`
 #' @return the detrended raster as a `RasterLayer`
 #' @export
@@ -20,6 +20,31 @@ detrend_dem <- function(dem){
   detrended_dem <- raster::setValues(detrended_dem, z_detrend)
   detrended_dem[is.na(detrended_dem)] <- 0
   return(detrended_dem)
+}
+
+#' Detrends a matrix dem with `lm.fit()`
+#' @param mat a matrix from `RasterLayer`
+#' @param coord the coordinates from the associated raster
+#' @return the detrended matrix
+#' @export
+#' @keywords fft2d
+detrend_mat <- function(mat, coords){
+  # coord <- raster::coordinates(mat)
+  # x <- coords[, 1]
+  # y <- coords[, 2]
+  # z <- raster::getValues(mat)
+  ind <- which(!is.na(mat))
+  
+  # odr <- pracma::odregress(coord[ind, ], mat[ind])
+  # z_detrend[ind] <- mat[ind] - odr$fitted
+  lmr <- stats::lm.fit(coords[ind, ], mat[ind])
+  z_detrend <- mat
+  z_detrend[ind] <- lmr$residuals
+  z_detrend[is.na(z_detrend)] <- 0
+  # detrended_dem <- mat
+  # detrended_dem <- raster::setValues(detrended_dem, z_detrend)
+  # detrended_dem[is.na(detrended_dem)] <- 0
+  return(z_detrend)
 }
 
 #' Pads a matrix with zeros so it has a given dimension
@@ -82,9 +107,11 @@ Hann2D <- function(M){
 #' @param Hann `logical`, if `TRUE` performs a Hann windowing, default to `TRUE`
 #' @return a list with 8 elements: `spectral_power_matrix`, `radial_frequency_matrix`, `spectral_power_vector`, `1/L`, `radial_frequency_vector`, `wave_vectork_xy`.
 #' `kx` and `ky`, wave vector matrices matching the spectral_power_matrix from -2π×dr/L to 2π×dr/L (in rad/unit of `dr`), including K=0 offset from the centre by 1 index position in the positive.
-#' The wave vectors are identical when dr == dx == dy, because the input matrix is padded to the larger dimension 
+#' The wave vectors are identical when dr == dx == dy, otherwise the input matrix is padded to the larger dimension 
+#' The `spectral_power_matrix` is the window-corrected 2d DFT periodogram returned in units of dr^2, typically m^2, following normalisation by the window function
+#' The  `spectral_power_vector` is the 1d DFT periodogram along monotonically increasing frequencies, multiplied by two to account for returning only half the spectrum
 #' `dfx` and `dfy` is frequency (e.g. 1/(dx*L)) in cycles per unit length of `dx`/`dy`/`dr`, typically meters, multiply by 2π for angular wavenumber
-#' `radial_frequency_matrix` and `radial_frequency_vector` are provided in angular wavenumbers (rad/input unit)
+#' `radial_frequency_matrix` and `radial_frequency_vector` are provided in (angular) radial wavenumbers (rad/input unit)
 #' @export
 #' @keywords fft2d
 fft2D <- function(M, dx, dy, dr = NULL, Hann = TRUE){
@@ -110,7 +137,8 @@ fft2D <- function(M, dx, dy, dr = NULL, Hann = TRUE){
   M <- pad_mat(M, Lx, Ly) #DC at index Lx/2 +1, Ly/2 +1
   # replicate in wave vectors below
   k_x <- (-Lx/2):(Lx/2 - 1) * (2*pi*dfx) # multiplication of index by angular wavenumber 
-  k_y <- (-Ly/2):(Ly/2 - 1) * (2*pi*dfy) # produces wavenumber vector for every fft cell 
+  k_y <- (-Ly/2):(Ly/2 - 1) * (2*pi*dfy) # produces wavenumber vector for every fft cell
+  #the resulting wave vectors are in units of radians per unit of xy, typcially meters
   #matrices from k_x and k_y:
   KX <- matrix(rep(k_x, each = Ly), nrow = Ly, ncol = Lx)
   KY <- matrix(rep(k_y, times = Lx), nrow = Ly, ncol = Lx)
@@ -118,6 +146,9 @@ fft2D <- function(M, dx, dy, dr = NULL, Hann = TRUE){
   M <- stats::fft(M)
   M <-  mrbsizeR::fftshift(M)
   M[(Ly/2 + 1), (Lx/2 + 1)] <- 0
+  #Calculate the DFT periodogram, which has units of amplitude^2(m^2 for 
+  # topography). Dividing by (Wss*Lx * Ly) corrects for the reduction of
+  # amplitude by the windowing function, with Wss == Lx*Ly if no windowing used
   M <- M * Conj(M) / (Lx * Ly * Wss)
   spectral_power_matrix <- M 
   xc <- Lx / 2 + 1 # matrix indices of zero frequency
@@ -130,10 +161,19 @@ fft2D <- function(M, dx, dy, dr = NULL, Hann = TRUE){
   # Creating sorted, non-redundant vectors of frequency and power 
   M <- M[ , (1:(Lx/2+1))]
   radial_frequency_vector <- radial_frequency_matrix[, (1:(Lx/2+1))]
-  radial_frequency_vector[((yc+1):Ly), xc] <- -1 # This half-column is redundant_ Set the frequencies to negative values so they will be clipped out below
-  radial_frequency_vector <- pracma::sortrows(cbind(c(radial_frequency_vector), c(Re(M))), 1) # concatenate column vectors of frequency and PSD and sort by frequency
-  radial_frequency_vector <- radial_frequency_vector[radial_frequency_vector[ , 1] > 0 , ] # Take only positive frequencies_ This gets rid of DC (zero freq) as well as the redundant frequencies we set to -1 above
-  spectral_power_vector <-  2 * radial_frequency_vector[ , 2] # Separate into power and frequency vectors and assign to output arguments; # the factor of 2 corrects for the fact that we have taken only half of the 2D spectrum_ sum(spectral_power_vectorec) should now equal sum(Pmat(:))_
+  #' The data is symmetric around zero. Set the frequencies to negative values,  
+  #' they will be clipped out further down
+  radial_frequency_vector[((yc+1):Ly), xc] <- -1  
+  # concatenate column vectors of frequency and PSD and sort by frequency:
+  radial_frequency_vector <- pracma::sortrows(cbind(c(radial_frequency_vector), 
+                                                    c(Re(M))), 1)
+  #' Take only positive frequencies. This gets rid of DC (zero freq) as well as 
+  #' the redundant frequencies we set to -1 above:
+  radial_frequency_vector <- radial_frequency_vector[radial_frequency_vector[ , 1] > 0 , ]
+  # Separate into power and frequency vectors and assign to output arguments; 
+  # the factor of 2 corrects for the fact that we have taken only half of the 2D 
+  # spectrum_ sum(spectral_power_vectorec) should now equal sum(Pmat(:))_
+  spectral_power_vector <-  2 * radial_frequency_vector[ , 2]  
   radial_frequency_vector <- radial_frequency_vector[, 1]
   l <- list(
     spectral_power_matrix = spectral_power_matrix,

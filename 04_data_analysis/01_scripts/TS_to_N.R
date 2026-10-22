@@ -2,7 +2,7 @@
 # script to compute N2 from high-dimensional modelled S-T data 
 library(stars)
 library(ncdf4)
-st_2022 <- read_stars(r'(C:\Users\fbutschek\Desktop\hycom\2022\st_master_file.nc)',
+st_2022 <- read_stars(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\st_master_file.nc)',
                       proxy = T)
 library(oce)
 
@@ -15,6 +15,7 @@ longs <- st_2022 |> # get and convert longs to + [0,360] E of Greenwich
   )%% 360 
 depth_levels <- st_get_dimension_values(st_2022, 
                                         which(names(st_dimensions(st_2022))=='depth'))
+depth_levels <- units::drop_units(depth_levels)
 p_levels <- gsw_p_from_z(z = -depth_levels, latitude = mid_lat)
 st_2022 <- st_set_dimensions(st_2022, 'depth', 
                              values = p_levels) #change depth to pressure levels
@@ -39,7 +40,7 @@ lon_mat <- ifelse(lon_mat < 0, lon_mat + 360, lon_mat)
 SA_arr <- array(NA_real_, dim = dim(st_2022))  # x × y × pressure × time
 
 # compute time-step-wise absolute salinity --------------------------------
-nc <- nc_open(r'(C:\Users\fbutschek\Desktop\hycom\2022\st_master_file.nc)')
+nc <- nc_open(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\st_master_file.nc)')
 on.exit(nc_close(nc), add=TRUE)
 
 # sizes
@@ -85,7 +86,7 @@ abs_salinity <- ncvar_def(name = 'absolute_salinity', units = 'g/kg',
                           longname    = "Sea water Absolute Salinity")
 
 #store as a nc file:
-abs_sa_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022\abs_salinity.nc)', 
+abs_sa_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\abs_salinity.nc)', 
                        vars = abs_salinity, force_v4 = TRUE ) 
 on.exit(nc_close(abs_sa_nc), add=TRUE)
 
@@ -122,11 +123,11 @@ cons_temp <- ncvar_def(name = 'conservative_temperature', units = 'degC',
                           shuffle = F,
                           chunksizes = chunks,
                           longname    = "Sea water Conservative Temperature")
-ct_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022\ct.nc)', 
+ct_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\ct.nc)', 
                        vars = cons_temp, force_v4 = TRUE ) 
 on.exit(nc_close(ct_nc), add=TRUE)
 # here, we may have to iterate through time steps and pressure levels
-sa_nc <- nc_open(filename = r'(C:\Users\fbutschek\Desktop\hycom\2022\abs_salinity.nc)')
+sa_nc <- nc_open(filename = r'(C:\Users\fbutschek\Desktop\hycom\2022_south\abs_salinity.nc)')
 on.exit(nc_close(sa_nc), add=TRUE)
 
 for (i in seq_len(tm)) {
@@ -148,14 +149,6 @@ for (i in seq_len(tm)) {
 nc_close(ct_nc)
 nc_close(sa_nc)
 nc_close(nc)
-
-for(p in seq_along(p_levels)){
-  CT_array[,,p] <- gsw:gsw_CT_from_t(t = ts_xyk[['water_temp']][,,p],
-                                 SA = ts_xyk[['SA']][,,p],
-                                 p = p_levels[p])
-  CT_i_arr <- array(CT_i, dim = dim(temp_i))
-}
-
 
 # Helper function to compute N2 profiles ----------------------------------
 
@@ -185,9 +178,9 @@ compute_N2_profile <- function(SA, CT, p, lat) {
 }
 # N2 calculation ----------------------------------------------------------
 
-sa_nc <- nc_open("C:\\Users\\fbutschek\\Desktop\\hycom\\2022\\abs_salinity.nc")
+sa_nc <- nc_open("C:\\Users\\fbutschek\\Desktop\\hycom\\2022_south\\abs_salinity.nc")
 on.exit(nc_close(sa_nc), add=TRUE)
-ct_nc <- nc_open("C:\\Users\\fbutschek\\Desktop\\hycom\\2022\\ct.nc")
+ct_nc <- nc_open("C:\\Users\\fbutschek\\Desktop\\hycom\\2022_south\\ct.nc")
 on.exit(nc_close(ct_nc), add=TRUE)
 mid_p <- p_levels[1:(length(p_levels)-1)] + diff(p_levels)/2
 # initialise N2 nc_file:
@@ -204,7 +197,7 @@ n2 <- ncvar_def(name = 'N2', units = 's^-2',
                        longname    = "Squared buoyancy frequency N2")
 
 # create N2:
-n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022\N2.nc)', 
+n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\N2.nc)', 
                   vars = n2, force_v4 = TRUE )
 on.exit(nc_close(n2_nc), add=TRUE)
 # for every timestep, load an array of sa and ct with all pressure levels
@@ -240,34 +233,40 @@ for (i in seq_len(tm)) {
 # having computed the N2 raster for all timesteps and x,y cells, we next 
 # calculate the bottom N2 weights based on the true depth raster and max depth levels
 library(raster)
-source('04_data_analysis/02_functions/bottom_window_weights.R')
+# source('04_data_analysis/02_functions/bottom_window_weights.R')
 
-H_hybrid <- raster('02_secondary_data/NRL_HYCOM_hybrid_bathy.tif')
-max_hycom_depth <- raster('03_derived_data/HYCOM_max_depth.tif')
+source('04_data_analysis/02_functions/bottom_window_weights_N2.R')
 
+H_hybrid <- raster('02_secondary_data/NRL_HYCOM_hybrid_bathy_south.tif')
+max_hycom_depth <- raster('03_derived_data/HYCOM_max_depth_south.tif')
 
-dmid <- diff(depth_levels) #computes inter depth level differences
+dz1 <- diff(depth_levels) #computes inter depth level differences
 # here we assume 0 top edge (surface) and bottom edge is last mid + half last diff:
-depth_edges <- c(0, head(depth_levels, -1) + dmid/2, tail(depth_levels, 1) + tail(dmid, 1)/2)
-dz <- diff(depth_edges)
+depth_edges <- c(0, head(depth_levels, -1) + dz1/2, tail(depth_levels, 1) + tail(dz1, 1)/2)
+dz2 <- diff(depth_edges)
 # generate max N2 valid depth raster from nc file:
-n2_ex <- brick(r'(C:\Users\fbutschek\Desktop\hycom\2022\N2.nc)', lvar = 4)
+n2_ex <- brick(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\N2.nc)', lvar = 4)
 n2_max_valid <- calc(!is.na(n2_ex), fun = sum) #unambgiuous index of max N2 depth level 
 n2_max_depth <- reclassify(n2_max_valid, 
-                  rcl = cbind('is'=0:38, #we never get beyond 38, as 4000m the deepest cell in study area
+                  rcl = cbind('is'=0:39, #we never get beyond 38, as 4000m the deepest cell in study area
                         'becomes'=  c(NA, # 0 becomes NA
-                           depth_levels[1:38]+diff(depth_levels[-length(depth_levels)])/2))) #deeper becomes mid value for N2
-depth_levels <-  depth_levels[1:38]+diff(depth_levels[-length(depth_levels)])/2
-hybrid_nc <- nc_open(filename = '02_secondary_data/NRL_HYCOM_hybrid_bathy.nc')
+                                      
+                           depth_levels[1:39]+dz1[1:39]/2))) #deeper becomes mid value for N2
+mid_levels <- depth_levels[1:39]+dz1[1:39]/2
+# mid_levels <-  depth_levels[1:38]+diff(depth_levels[-length(depth_levels)])/2
+hybrid_nc <- nc_open(filename = '02_secondary_data/NRL_HYCOM_hybrid_bathy_south.nc')
 on.exit(nc_close(hybrid_nc), add = T)
-hybrid_depths <- ncvar_get(hybrid_nc, 'NRL_HYCOM_hybrid_bathy')
+names(hybrid_nc$var)
+hybrid_depths <- ncvar_get(hybrid_nc, names(hybrid_nc$var)[2]
+                           # 'NRL_HYCOM_hybrid_bathy'
+                           )
 n2_max_depth <- t(as.matrix(n2_max_depth))
 all.equal(is.na(n2_max_depth), is.na(hybrid_depths))
-#"12 element mismatches"
+# Any mismatches?
 sum(is.na(t(as.matrix(n2_max_depth))))
-#38
+#N:38, S: 0
 sum(is.na(hybrid_depths))
-# 48(
+#N: 48, S:0
 n2_max_depth[is.na(hybrid_depths)] # an additional na 10 cells in very shallow water
 
 bottom_weights <- build_n2_bottom_weights(hybrid_depths, n2_max_depth, depth_levels = mid_levels)
@@ -286,7 +285,7 @@ bottom_n2 <- ncvar_def(name = 'Bottom N2', units = 's^-2',
                        compression = 5L,
                        shuffle = F,
                        longname    = "Squared bottom buoyancy frequency N2")
-bottom_n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022\bottom_N2.nc)', 
+bottom_n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\bottom_N2.nc)', 
                    vars = bottom_n2, force_v4 = TRUE )
 on.exit(nc_close(bottom_n2_nc), add=TRUE)
 
@@ -299,7 +298,7 @@ for (i in seq_len(tm)) {
   n2_xyk <- ncvar_get(n2_nc, "N2",
                       start = c(1, 1, 1, i),       # x, y, pressure, time
                       count = c(nx, ny, K, 1))
-  weighted_N2_array <- n2_xyk * bottom_weights[,76:1,1:K] #reverse y-dim on purpose to align
+  weighted_N2_array <- n2_xyk * bottom_weights[,ny:1,1:K] #reverse y-dim on purpose to align
   bottom_n2_matrix <- apply(weighted_N2_array,MARGIN = c(1,2), sum, na.rm = T)
 
   ncvar_put(bottom_n2_nc, "Bottom N2",
@@ -320,7 +319,7 @@ image(raster(t(bottom_n2_matrix),
 # # generate seasonal average using ncdf4 : --------------------------------
 # the stars method didn't work
 library(lubridate)
-bottom_n2 <- nc_open(r'(C:\Users\fbutschek\Desktop\hycom\2022\bottom_N2.nc)')
+bottom_n2 <- nc_open(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\bottom_N2.nc)')
 time_seconds <- ncvar_get(bottom_n2, varid = 'time')*3600
 time_origin <-  as_datetime("2000-01-01 00:00:00", tz= "UTC")
 add_time <- as.numeric(24*3600*(time_origin-origin))
@@ -354,35 +353,103 @@ winter_n2nc <- ncvar_def(name = 'winter_N2', units = 's^-2',
                          nc$dim$lat),
                        missval = NA, prec = 'float',
                        compression = 5L,
-                       shuffle = F,
-                       longname    = "Winter (before 2022-03-22 and after 2022-09-21) average of squared bottom buoyancy frequency N2")
+                       shuffle = F#,
+                       # longname    = "Winter (before 2022-03-22 and after 2022-09-21) average of squared bottom buoyancy frequency N2"
+                       )
 summer_n2nc <- ncvar_def(name = 'summer_N2', units = 's^-2',
                          dim = list(
                            nc$dim$lon,
                            nc$dim$lat),
                          missval = NA, prec = 'float',
                          compression = 5L,
-                         shuffle = F,
-                         longname    = "Summer (2022-03-22 to 2022-09-21) average of squared bottom buoyancy frequency N2")
+                         shuffle = F#,
+                         # longname    = "Summer (2022-03-22 to 2022-09-21) average of squared bottom buoyancy frequency N2"
+                         )
 
 
-seasonal_n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022\seasonal_bottom_N2_data.nc)',
+seasonal_n2_nc <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\seasonal_bottom_N2_data.nc)',
                             vars = list(winter_n2nc, summer_n2nc))
 on.exit(nc_close(seasonal_n2_nc), add = T)
 ncvar_put(seasonal_n2_nc, varid = 'winter_N2',
-          vals = array(c(mean_winter_n2), dim = c(nx, ny)),
-          start = c(1, 1),
-          count = c(nx, ny))
+          vals =mean_winter_n2)
 ncvar_put(seasonal_n2_nc, varid = 'summer_N2',
-          vals = array(c(mean_summer_n2), dim = c(nx, ny)),
-          start = c(1, 1),
-          count = c(nx, ny))
+          vals = mean_summer_n2)
 nc_close(seasonal_n2_nc)
 
 
+# Reproject N2 bottom layer data to UTM18N --------------------------------
+library(ncdf4); library(stars)
+
+nc_grid <- rast(seasonal_n2$filename)
+nc_grid_utm <- terra::project(nc_grid, "EPSG:32618", 
+                              res = c(7450, 4380),
+                              method = 'bilinear')
+## Define target wrap dimension from nc template grid ----------------------
+target <- st_as_stars(raster(nc_grid_utm))
 
 
+winter_n2_stars <- read_stars(seasonal_n2_nc$filename, sub = 1)
+st_crs(winter_n2_stars) <- "EPSG:4326"
+winter_n2_utm <- st_warp(winter_n2_stars, target,
+                           method = 'bilinear', use_gdal = T,
+                           no_data_value = -9999)
+names(winter_n2_utm) <- 'winter_n2'
+summer_n2_stars <- read_stars(seasonal_n2_nc$filename, sub = 2)
+st_crs(summer_n2_stars) <- "EPSG:4326"
+summer_n2_utm <- st_warp(summer_n2_stars, target,
+                         method = 'bilinear', use_gdal = T,
+                         no_data_value = -9999)  
+names(summer_n2_utm) <- 'summer_n2'
 
+# write_stars(summer_n2_utm,r'(C:\Users\fbutschek\Desktop\hycom\2022_south\N2_UTMtest.tif)')
+# Build NC files ----------------------------------------------------------
 
+x_dim <- st_dimensions(target)$x
+x_vals <- seq(from = x_dim$offset, by = x_dim$delta, length.out =x_dim$to)
+# y_vals <- st_get_dimension_values(u_geos_2022_UTM18N, 'y')
+y_dim <-st_dimensions(target)$y
+y_vals <- seq(from = y_dim$offset, by = y_dim$delta, length.out =y_dim$to)
 
+crs_var <- ncvar_def("crs", "", list(), prec = "integer")
+source('04_data_analysis/02_functions/nc_metadata_assignment_helpers.R')
 
+winter_n2_utm_nc <- ncvar_def(name = 'winter_N2', units = 's^-2', 
+                           dim = list(ncdim_def('x', 'm', 
+                                                vals = x_vals,
+                                                create_dimvar = T),
+                                      ncdim_def('y', 'm', 
+                                                vals = y_vals,
+                                                create_dimvar = T)),
+                         missval = NA, prec = 'float',
+                         compression = 5L,
+                         shuffle = F,
+                         longname    = "Winter (before 2022-03-22 and after 2022-09-21) average of squared bottom buoyancy frequency N2")
+summer_n2_utm_nc <- ncvar_def(name = 'summer_N2', units = 's^-2', 
+                         dim = list(ncdim_def('x', 'm', 
+                                              vals = x_vals,
+                                              create_dimvar = T),
+                                    ncdim_def('y', 'm', 
+                                              vals = y_vals,
+                                              create_dimvar = T)), 
+                         missval = NA, prec = 'float',
+                         compression = 5L,
+                         shuffle = F,
+                         longname    = "Summer (2022-03-22 to 2022-09-21) average of squared bottom buoyancy frequency N2")
+
+seasonal_n2_UTM <- nc_create(r'(C:\Users\fbutschek\Desktop\hycom\2022_south\seasonal_bottom_N2_data_UTM.nc)',
+                            vars = list(winter_n2_utm_nc, summer_n2_utm_nc, crs_var))
+nc_assign_geo(seasonal_n2_UTM, refsys = "EPSG:32618")
+ncvar_put(seasonal_n2_UTM, 'winter_N2',
+          vals = winter_n2_utm$winter_n2)
+ncvar_put(seasonal_n2_UTM, 'summer_N2',
+          vals = summer_n2_utm$summer_n2)
+
+nc_def_axis(seasonal_n2_UTM, 'projected')
+
+ncatt_put(seasonal_n2_UTM, "winter_N2", "grid_mapping", "crs")
+ncatt_put(seasonal_n2_UTM, "summer_N2", "grid_mapping", "crs")
+
+            
+            
+nc_close(seasonal_n2_UTM)
+            

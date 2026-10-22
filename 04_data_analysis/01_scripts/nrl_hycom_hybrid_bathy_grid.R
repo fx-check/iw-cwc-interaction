@@ -4,6 +4,7 @@
 # Preliminaries -----------------------------------------------------------
 # 1) Import data and get names 
 library(ncdf4)
+library(raster)
 # Having tested, the gebco grid is not a great match for HYCOM data, let's use the  
 # Naval Research Laboratory (NRL) Digital Bathymetry Data Base (DBDB2) instead:
 # download under 'topography' from: https://www.hycom.org/data/glba0pt08/expt-90pt8
@@ -34,7 +35,7 @@ if (max(plon, na.rm = TRUE) > 180) plon <- ifelse(plon > 180, plon - 360, plon)
 
 # 3) Build the per-cell mask from the 2-D matrices, here we use our study area
 lon_min <- -80; lon_max <- -76 # modify this if needed
-lat_min <-  30; lat_max <-  33 # modify this to match case study BBox
+lat_min <-  27; lat_max <-  30 # modify this to match case study BBox
 
 mask <- (plon >= lon_min & plon <= lon_max) &
   (plat >= lat_min & plat <= lat_max)
@@ -51,20 +52,28 @@ i0 <- min(ii); i1 <- max(ii)
 plon_sub  <- t(plon [j0:j1, i1:i0]) # longitude increasing to the right
 plat_sub  <- t(plat [j0:j1, i1:i0]) # latitude decreasing down 
 depth_sub <- t(depth[j0:j1, i1:i0])
-mask_sub  <- mask [j0:j1, i0:i1]
+mask_sub  <- t(mask [j0:j1, i0:i1])
 # Quick check
 plon_sub[1:6,1:6] # looks correct
 plat_sub[1:6,1:6] # needs to be decreasing to match raster expectation
 depth_sub[1:6,1:6] # correct placement of na values
 
+# Import HYCOM data and get max depths  ------------------------------------
+
+# Staying in .nc grids, import a hycom .nc file that's been extracted with the same
+#BBox coordinates, the following operation just imports the first var and z-dim.
+# fn2 <- choose.files() # choose a HYCOM .nc file that's been extracted with the same
+fn2 <- nc_files[1]
+hycom_nc <- nc_open(fn2)
+hycom_array <- ncvar_get(hycom_nc, varid = names(hycom_nc$var)[1])
 # Build a raster object from data subset ----------------------------------
 library(raster)
-fn2 <- choose.files() # choose a HYCOM .nc file that's been extracted with the same
+# fn2 <- choose.files() # choose a HYCOM .nc file that's been extracted with the same
 #BBox coordinates, the following operation just imports the first var and z-dim.
 hycom_grid <- raster(fn2) # which is fine for getting the xy dims:
 e1 <- extent(hycom_grid)
 
-dim(depth_sub) <- c(x = 44, y = 51) #add unequivocal dimensions along x=lon, y=lat
+# dim(depth_sub) <- c(x =  nrow(plat_sub), y =  ncol(plat_sub)) #add unequivocal dimensions along x=lon, y=lat
 nrl_grid <- raster(depth_sub, 
        xmn = e1[1], xmx=e1[2], ymn = e1[3], ymx=e1[4], #extent
        crs = crs(hycom_grid)) #crs
@@ -120,8 +129,8 @@ max_bin_grid <- raster(t(max_bin), xmn = e1[1], xmx=e1[2], ymn = e1[3], ymx=e1[4
                   crs = crs(h_nrl_res))
 image(max_bin_grid)
 dz <- c(NA, diff(depth_levels)) #NA is for land here (0th bin)
-rcl_mat <- data.frame('from'=cellStats(max_bin_grid, min, na.rm=T):
-                        cellStats(max_bin_grid, max, na.rm=T),'to'=dz)
+rcl_mat <- data.frame('is'=cellStats(max_bin_grid, min, na.rm=T):
+                        cellStats(max_bin_grid, max, na.rm=T),'becomes'=dz)
 layer_width_below <- reclassify(max_bin_grid, rcl = rcl_mat) #layer width deeper than max cell
 layer_width_above <- reclassify(max_bin_grid-1, rcl = rcl_mat) # layer width above max cell
 #this works here because we don't have any cells in the 40th (5km) layer, otherwise need to add one
@@ -130,7 +139,7 @@ layer_width_above <- reclassify(max_bin_grid-1, rcl = rcl_mat) # layer width abo
 # Let's run some tests on differences:
 cellStats(layer_width_below!=layer_width_above, stat = sum) # n of cells on the transition between layer widths
 
-max_hycom_depth <- raster(t(max_level), xmn = e1[1], xmx=e1[2], ymn = e1[3], ymx=e1[4],crs = crs(H_true))
+max_hycom_depth <- raster(t(max_level), xmn = e1[1], xmx=e1[2], ymn = e1[3], ymx=e1[4],crs = crs(h_nrl_res))
 #check no of cells with nrl depth deeper than hycom layer edge (layer +1/2layer below) 
 cellStats(h_nrl_res > max_hycom_depth + layer_width_below/2, sum)
 cellStats(h_nrl_res < max_hycom_depth, sum) # quite a few cells shallower than HYCOM max depth
@@ -160,9 +169,9 @@ cellStats(H_hybrid < max_hycom_depth,sum)
 # The number of bathy data too shallow outlier cells has reduced by 700 to 6, 
 cellStats(H_hybrid > max_hycom_depth+layer_width_below,sum) # should be zero
 # Next up, creating the mask using a depth weighted mean on a window function 
-
-
-
-
+writeRaster(max_hycom_depth, 
+            filename = '03_derived_data/HYCOM_max_depth.tif')
+writeRaster(H_hybrid, filename = '02_secondary_data/NRL_HYCOM_hybrid_bathy_south.tif')
+writeRaster(H_hybrid, filename = '02_secondary_data/NRL_HYCOM_hybrid_bathy_south.nc')
 
 
