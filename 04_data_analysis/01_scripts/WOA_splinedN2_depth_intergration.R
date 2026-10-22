@@ -1,6 +1,6 @@
 # ============= Script for high-resolution N2 depth integration ==============
 # This code depth-integrates N2 at the resolution of input bathymetry, using 
-# an 'up-sampling' approach refined from Davies & Guinotte (2011) and 
+# an 'up-sampling' approach refined from Davies & Guinotte (2011).
 # Here, a weighted shape-preserving spline is used on the local and all neighbouring
 # cells to interpolate N2 at the depth of the seabed. Depth integration is carried
 # out over the proportion of the water column specified by H_prop from the bottom
@@ -16,9 +16,10 @@ suppressPackageStartupMessages({
     library(i, character.only = TRUE)}
 })
 
-# =================== Input SETTINGS ===================
+# =================== Input Settings ===================
+# input 3D N2 file (coarse grid):
+n2_nc_path   <- "02_secondary_data/NovaScotia/intermediary_files/summerN2.nc"
 
-n2_nc_path   <- n2_nc$filename       # input 3D N2 file (coarse grid)
 n2_varname   <- "N2"
 # high-res bathymetry (here local LCC, meters; negative depths or positive down):
 bathy_path   <- "clipped_bathy.tif"  
@@ -26,20 +27,22 @@ bathy_path   <- "clipped_bathy.tif"
 lcc_crs <- paste("+proj=lcc +lat_0=46 +lon_0=-60 +lat_1=48 +lat_2=52",
                 "+x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs", sep = ' ')
 # Outputs
-
-out_mean <- "zN2_100m_fullWC.tif"
-out_flag <- "zN2_100m_flags_fullWC.tif" # categorical flag containing 4 classes:
+out_dir <- r'(02_secondary_data\NovaScotia\intermediary_files)'
+out_mean <- paste(out_dir,"N2_summer_100m_fullWC.tif", sep = '\\')
+out_flag <-  paste(out_dir,"N2_winter_100m_fullWC.tif", sep = '\\') 
+# categorical flag containing 4 classes:
 # 0 - local N2 water column includes seafloor
 # 1 - ngb N2 spline includes seafloor, max depth values based on ngb N2
 # 2 - reduced window (==H_prop) due to insufficient data in ngb at max depth
 # 3 - no data within H_prop, returned NA
 # These flags may help tune H_prop below to a sensible value
-out_qflag <- "zN2_100m_qflag_fullWC.tif"  # quantitative quality flag
+out_qflag <-  paste(out_dir,"N2_summer_100m_fullWC.tif", sep = '\\')
+# quantitative quality flag
 # percentage of theoretical values used in nearbed range across 9 cell ngb
 
 # integration window, change to desired nearbed fraction, H_prop=1 <- whole column
 H_prop <- 1
-H_cap  <- 5000
+H_cap  <- 6000 # effectively removes cap as water depth <6000 everywhere
 
 # neighborhood‑weighted fitting
 w_local      <- 1.0 #local cell weight for spline fits
@@ -54,18 +57,18 @@ winsor_probs <- c(0.005, 0.995)
 min_pts_main  <- 6
 min_pts_local <- 6
 
-# optional smoothing
-do_smooth       <- FALSE
-smooth_sigma_px <- 0.8
-smooth_radius   <- 2L
+# optional smoothing, this os experimental and not used:
+# do_smooth       <- FALSE
+# smooth_sigma_px <- 0.8
+# smooth_radius   <- 2L
 
 # WOA mid‑depth levels (positive down via abs())
 mid_levels <- depth_levels[-length(depth_levels)]+diff(depth_levels)
 z_mid <- abs(mid_levels)
 
 #intergration options
-depth_factor <- TRUE    # multiplies N2 by respective N2 depth within intergrand
-depth_avg <- FALSE      # divides by (H*H_prop) for depth-averaged integration  
+depth_factor <- FALSE    # multiplies N2 by respective N2 depth within intergrand
+depth_avg <- TRUE        # divides by (H*H_prop) for depth-averaged integration  
 
 # =================== HELPERS ===================
 
@@ -170,7 +173,7 @@ for (iy in 1:ny) for (ix in 1:nx) {
   # collect 3×3 column values (central + 8 neighbors)
   ngb <- c(id, neighbors_list[[id]])
   
-  # --- counts9 over depth (max 9 per z level) ---  ### NEW: qflag support
+  # --- counts9 over depth (max 9 per z level) ---  
   counts9 <- integer(nz)
   for (nid in ngb) {
     jy <- ((nid-1) %/% nx) + 1
@@ -231,7 +234,7 @@ for (iy in 1:ny) for (ix in 1:nx) {
   cell_model[[id]] <- list(
     fun_main   = fun_main,  zmin_main = zmin_main, zmax_main = zmax_main,
     fun_local  = fun_local, zmin_local= zmin_local, zmax_local= zmax_local,
-    counts9    = counts9    # ### NEW: per-depth valid count across 3×3
+    counts9    = counts9    # per-depth valid count across 3×3
   )
 }
 
@@ -270,7 +273,7 @@ if(!exists('r_id_lcc') |
 
 out_val <- rast(bathy); names(out_val) <- "N2_nearbed"
 out_flg <- rast(bathy); names(out_flg) <- "flags"
-out_qf  <- rast(bathy); names(out_qf)  <- "qflag"    # ### NEW
+out_qf  <- rast(bathy); names(out_qf)  <- "qflag"    
 
 b1 <- writeStart(out_val, filename=out_mean, overwrite=TRUE,
                  filetype="GTiff", gdal=c("COMPRESS=DEFLATE","ZLEVEL=6","TILED=YES"))
@@ -280,7 +283,7 @@ b3 <- writeStart(out_qf,  filename=out_qflag, overwrite=TRUE,
                  filetype="GTiff", gdal=c("COMPRESS=DEFLATE","ZLEVEL=6","TILED=YES"))
 
 b <- b1
-cat("Flags: 0=local full, 1=neighbor-assisted full, 2=reduced window, 3=NA\n")
+cat("Flags: 0= full with local throughout profile, 1=neighbor-assisted full, 2=reduced window, 3=NA\n")
 cat("qflag: % of valid (3×3) WOA samples available in [z-H, z]\n")
 
 for (i in 1:b$n) {
@@ -292,7 +295,7 @@ for (i in 1:b$n) {
   
   v_mean <- rep(NA_real_, length(zb))
   v_flag <- rep(3L,        length(zb))
-  v_qflg <- rep(NA_real_,  length(zb))   # ### NEW
+  v_qflg <- rep(NA_real_,  length(zb))   # 
   
   for (k in seq_along(zb)) {
     z   <- zb[k]; id0 <- pid[k]
@@ -303,10 +306,12 @@ for (i in 1:b$n) {
     
     # near-bed window, or full water column if H_prop=1 and H_cap>max_depth
     H     <- min(H_prop * z, H_cap)
-    a_req <- z - H
+    # trim top of window to z_mid[1] for full WC (rather than 0), to avoid flag
+    # defaulting to reduced window
+    a_req <- ifelse(z - H < z_mid[1],z_mid[1],z - H)
     b_req <- z
     
-    # qflag computation (based on raw availability, not weights)
+    # qflag computation (based on raw availability of ngb cells, not weights)
     # indices of WOA mid-levels inside [a_req, b_req]
     idx_win <- which(z_mid >= a_req & z_mid <= b_req)
     n_theory <- 9L * length(idx_win)
@@ -316,11 +321,13 @@ for (i in 1:b$n) {
     } else {
       v_qflg[k] <- NA_real_
     }
+    #BUG FIX needed for H_prop=1, a_req will be 0, defaulting to reduced window
     
     # process flag + mean
     if (!is.null(cm$fun_local) &&
         a_req >= cm$zmin_local && b_req <= cm$zmax_local) {
-      v_mean[k] <- int_over_interval(cm$fun_local, a_req, b_req)
+      # here, fun_local could theoretically be used
+      v_mean[k] <- int_over_interval(cm$fun_main, a_req, b_req)
       v_flag[k] <- 0L
       next
     }
@@ -344,7 +351,7 @@ for (i in 1:b$n) {
   
   writeValues(out_val, v_mean, r0, nr)
   writeValues(out_flg, v_flag, r0, nr)
-  writeValues(out_qf,  v_qflg, r0, nr)    # ### NEW
+  writeValues(out_qf,  v_qflg, r0, nr)
 }
 
 writeStop(out_val)
@@ -354,13 +361,14 @@ writeStop(out_qf)
 cat("Finished main outputs:\n  - ", out_mean, "\n  - ", out_flag, "\n  - ", out_qflag, "\n", sep="")
 
 # optional smoothing of the mean field
-if (isTRUE(do_smooth)) {
-  cat("Writing smoothed copy ...\n")
-  K <- gauss_kernel(sigma_cells=smooth_sigma_px, radius=smooth_radius)
-  N2_smooth <- focal(rast(out_mean), w=K, fun=sum, na.policy="omit",
-                     filename="N2_nearbed_100m_smooth.tif", overwrite=TRUE)
-  cat("  - N2_nearbed_100m_smooth.tif\n")
-}
+# if (isTRUE(do_smooth)) {
+#   cat("Writing smoothed copy ...\n")
+#   K <- gauss_kernel(sigma_cells=smooth_sigma_px, radius=smooth_radius)
+#   fn_out <- paste(strsplit(out_mean,'\\.')[[1]][1],"smooth.tif",sep = "_")
+#   N2_smooth <- focal(rast(out_mean), w=K, fun=sum, na.policy="omit",
+#                      filename=fn_out, overwrite=TRUE)
+#   cat("Finished optional outputs:\n",fn_out)
+# }
 
 cat("QA rasters:\n  - n2_row0.tif\n  - n2_col0.tif\n  - n2_id0.tif\n")
 cat("Done.\n")
